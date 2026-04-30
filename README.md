@@ -1,47 +1,59 @@
 # micronoc
 
-Repositorio base para desarrollar el proyecto `micronoc`.
-
-## Estado Actual
-Proyecto Python con FastAPI, pruebas con pytest y una CLI básica.
+Proyecto Python con FastAPI, pytest y una CLI basica para monitoreo.
 
 ## Estructura
-- `app/`: código de aplicación (API FastAPI + CLI).
-- `tests/`: pruebas unitarias/integración.
-- `scripts/`: automatizaciones de desarrollo y CI.
-- `docs/`: documentación técnica y decisiones de arquitectura.
-- `assets/` (opcional): archivos estáticos y fixtures.
+- `app/`: API, CLI, scheduler y servicios.
+- `tests/`: pruebas unitarias e integracion.
+- `scripts/`: automatizaciones para desarrollo local.
+- `.github/`: CI.
 
-## Comandos de Desarrollo
+## Desarrollo en Windows
+
+Este entorno no trae `make`, asi que el flujo recomendado es PowerShell:
+
+```powershell
+.\scripts\tasks.ps1 setup
+.\scripts\tasks.ps1 dev
+.\scripts\tasks.ps1 run
+.\scripts\tasks.ps1 test
+.\scripts\tasks.ps1 test -TestArgs "tests\test_cli.py tests\test_health.py"
+.\scripts\tasks.ps1 lint
+.\scripts\tasks.ps1 format
+.\scripts\tasks.ps1 cli -CliArgs "health"
+```
+
+## Desarrollo en Unix-like
+
+Si tenes `make`, siguen disponibles estos comandos:
 
 ```bash
-make setup    # instalar dependencias
-make dev      # ejecutar en local
-make run      # ejecutar sin reload
-make cli ARGS="health"  # ejecutar la CLI
-make test     # ejecutar pruebas
-make lint     # chequeos estáticos
-make format   # formateo de código
+make setup
+make dev
+make run
+make cli ARGS="health"
+make test
+make lint
+make format
 ```
 
 ## CLI
 
-La CLI se ejecuta como módulo Python:
+La CLI tambien puede ejecutarse directo con Python:
 
-```bash
-python -m app.cli health
-python -m app.cli serve --host 0.0.0.0 --port 8000 --reload
+```powershell
+.\.venv\Scripts\python.exe -m app.cli health
+.\.venv\Scripts\python.exe -m app.cli serve --host 0.0.0.0 --port 8000 --reload
 ```
 
-## Convenciones de Contribución
-- Sigue las reglas en `AGENTS.md`.
-- Usa commits tipo Conventional Commits:
-  - `feat: ...`
-  - `fix: ...`
-  - `docs: ...`
-- Incluye pruebas o evidencia de validación en cada PR.
+## Configuracion
 
-## Configuración y Seguridad
-- No subir secretos al repo.
-- Usar variables de entorno y mantener un `.env.example` actualizado.
-- Documentar variables requeridas y defaults seguros.
+- Copiar `.env.example` a `.env` y completar credenciales.
+- No subir secretos al repositorio.
+- Mantener `.env.example` actualizado cuando cambien variables requeridas.
+
+## Contribucion
+
+- Seguir las reglas de `AGENTS.md`.
+- Usar commits tipo Conventional Commits.
+- Incluir pruebas o evidencia de validacion en cada PR.
