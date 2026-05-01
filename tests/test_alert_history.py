@@ -1,23 +1,85 @@
-from datetime import UTC, datetime
+from collections.abc import Generator
 import sqlite3
+from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.api.deps import get_db
+from app.api.routes import dashboard as dashboard_route
 from app.database.base import Base
-from app.database.engine import engine
 from app.main import app
+import app.main as main_module
 
 
-def test_alert_history_endpoint_filters_by_date() -> None:
-    Base.metadata.create_all(bind=engine)
-    client = TestClient(app)
-    conn = sqlite3.connect("micronoc.db")
+@pytest.fixture
+def alert_history_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[tuple[TestClient, Path], None, None]:
+    temp_dir = Path("tests/.tmp")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    db_path = temp_dir / f"alert_history_{uuid4().hex}.db"
+    test_engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+    testing_session_local = sessionmaker(
+        bind=test_engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+        class_=Session,
+    )
+    Base.metadata.create_all(bind=test_engine)
+
+    def override_get_db() -> Generator[Session, None, None]:
+        db = testing_session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    async def noop_start(self) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    async def noop_stop(self) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(dashboard_route, "engine", test_engine)
+    monkeypatch.setattr(main_module, "engine", test_engine)
+    monkeypatch.setattr(main_module.MonitorService, "start", noop_start)
+    monkeypatch.setattr(main_module.MonitorService, "stop", noop_stop)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as client:
+        yield client, db_path
+
+    app.dependency_overrides.clear()
+    test_engine.dispose()
+    db_path.unlink(missing_ok=True)
+
+
+def _insert_alert_log(db_path: Path, values: tuple[str | None, ...]) -> None:
+    conn = sqlite3.connect(db_path)
     conn.execute(
         """
         insert into alert_event_log (
             id, alert_key, code, severity, title, router_name, router_role, origin, details, created_at
         ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
+        values,
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_alert_history_endpoint_filters_by_date(alert_history_client: tuple[TestClient, Path]) -> None:
+    client, db_path = alert_history_client
+    _insert_alert_log(
+        db_path,
         (
             "history-test-1",
             "router_unreachable|3deAbril",
@@ -31,12 +93,8 @@ def test_alert_history_endpoint_filters_by_date() -> None:
             "2030-03-24 10:00:00+00:00",
         ),
     )
-    conn.execute(
-        """
-        insert into alert_event_log (
-            id, alert_key, code, severity, title, router_name, router_role, origin, details, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+    _insert_alert_log(
+        db_path,
         (
             "history-test-2",
             "smartolt_low_signal|SmartOLT BellaVista",
@@ -50,8 +108,6 @@ def test_alert_history_endpoint_filters_by_date() -> None:
             "2030-03-23 10:00:00+00:00",
         ),
     )
-    conn.commit()
-    conn.close()
 
     response = client.get("/dashboard/alert-history?date_from=2030-03-24&date_to=2030-03-24")
 
@@ -62,22 +118,11 @@ def test_alert_history_endpoint_filters_by_date() -> None:
     assert "history-test-1" in ids
     assert "history-test-2" not in ids
 
-    cleanup = sqlite3.connect("micronoc.db")
-    cleanup.execute("delete from alert_event_log where id in (?, ?)", ("history-test-1", "history-test-2"))
-    cleanup.commit()
-    cleanup.close()
 
-
-def test_alert_history_endpoint_filters_by_alert_code() -> None:
-    Base.metadata.create_all(bind=engine)
-    client = TestClient(app)
-    conn = sqlite3.connect("micronoc.db")
-    conn.execute(
-        """
-        insert into alert_event_log (
-            id, alert_key, code, severity, title, router_name, router_role, origin, details, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+def test_alert_history_endpoint_filters_by_alert_code(alert_history_client: tuple[TestClient, Path]) -> None:
+    client, db_path = alert_history_client
+    _insert_alert_log(
+        db_path,
         (
             "history-code-1",
             "router_unreachable|3deAbril",
@@ -91,12 +136,8 @@ def test_alert_history_endpoint_filters_by_alert_code() -> None:
             "2030-03-24 10:00:00+00:00",
         ),
     )
-    conn.execute(
-        """
-        insert into alert_event_log (
-            id, alert_key, code, severity, title, router_name, router_role, origin, details, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+    _insert_alert_log(
+        db_path,
         (
             "history-code-2",
             "smartolt_low_signal|SmartOLT BellaVista",
@@ -110,8 +151,6 @@ def test_alert_history_endpoint_filters_by_alert_code() -> None:
             "2030-03-24 11:00:00+00:00",
         ),
     )
-    conn.commit()
-    conn.close()
 
     response = client.get(
         "/dashboard/alert-history?date_from=2030-03-24&date_to=2030-03-24&alert_code=router_unreachable"
@@ -123,21 +162,13 @@ def test_alert_history_endpoint_filters_by_alert_code() -> None:
     assert "history-code-1" in ids
     assert "history-code-2" not in ids
 
-    cleanup = sqlite3.connect("micronoc.db")
-    cleanup.execute("delete from alert_event_log where id in (?, ?)", ("history-code-1", "history-code-2"))
-    cleanup.commit()
-    cleanup.close()
 
-
-def test_alert_history_delete_requires_pin_and_deletes_with_valid_pin() -> None:
-    Base.metadata.create_all(bind=engine)
-    conn = sqlite3.connect("micronoc.db")
-    conn.execute(
-        """
-        insert into alert_event_log (
-            id, alert_key, code, severity, title, router_name, router_role, origin, details, created_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+def test_alert_history_delete_requires_pin_and_deletes_with_valid_pin(
+    alert_history_client: tuple[TestClient, Path],
+) -> None:
+    client, db_path = alert_history_client
+    _insert_alert_log(
+        db_path,
         (
             "history-delete-1",
             "wan_low_traffic|3deAbril",
@@ -151,10 +182,6 @@ def test_alert_history_delete_requires_pin_and_deletes_with_valid_pin() -> None:
             "2026-03-24 12:00:00+00:00",
         ),
     )
-    conn.commit()
-    conn.close()
-
-    client = TestClient(app)
 
     forbidden = client.request(
         "DELETE",
