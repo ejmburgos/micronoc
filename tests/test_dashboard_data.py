@@ -67,8 +67,9 @@ def test_smartolt_proxy_route_forwards_requests_and_sets_cookies(monkeypatch) ->
     dashboard_route._get_smartolt_proxy_service.cache_clear()
     monkeypatch.setattr(dashboard_route, "_get_smartolt_proxy_service", lambda: fake_service)
     client = TestClient(app)
+    client.cookies.set("smartolt__session", "browser-cookie")
 
-    response = client.get("/smartolt/auth/login", cookies={"smartolt__session": "browser-cookie"})
+    response = client.get("/smartolt/auth/login")
 
     assert response.status_code == 200
     assert response.text == "proxied-smartolt"
