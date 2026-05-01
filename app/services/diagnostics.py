@@ -117,8 +117,6 @@ class DiagnosticsService:
             tx_value = self._to_float(getattr(tx_snapshot, "metric_value", None)) if tx_snapshot else None
             link_state = self._normalize_link_state(getattr(link_state_snapshot, "metric_value", None))
             context = self._router_context(system_snapshot, cpu_snapshot, rx_snapshot, tx_snapshot, router_name)
-            has_stronger_router_condition = self._router_has_existing_alert(alerts, router_name, {"link_flapping"})
-
             if system_snapshot is not None and getattr(system_snapshot, "metric_value", None) == "failed":
                 alerts.append(
                     {
@@ -154,7 +152,6 @@ class DiagnosticsService:
             )
             if saturation_alert is not None:
                 alerts.append(saturation_alert)
-                has_stronger_router_condition = True
 
             if cpu_value is not None and cpu_value > self.settings.diag_cpu_warning_threshold:
                 alerts.append(
@@ -166,7 +163,6 @@ class DiagnosticsService:
                         **context,
                     }
                 )
-                has_stronger_router_condition = True
 
             low_traffic_threshold_bps = max(1.0, float(self.settings.diag_wan_low_traffic_threshold_bps))
             total_traffic_bps = (rx_value or 0.0) + (tx_value or 0.0) if rx_value is not None and tx_value is not None else None
@@ -206,7 +202,6 @@ class DiagnosticsService:
                         **context,
                     }
                 )
-                has_stronger_router_condition = True
             elif has_low_traffic_warning:
                 alerts.append(
                     {
@@ -222,7 +217,6 @@ class DiagnosticsService:
                         **context,
                     }
                 )
-                has_stronger_router_condition = True
 
             wan_reference_threshold_bps = self._router_wan_reference_threshold_bps(router_name)
             low_wan_threshold = wan_reference_threshold_bps * 0.3
@@ -245,10 +239,8 @@ class DiagnosticsService:
                         **context,
                     }
                 )
-                has_stronger_router_condition = True
 
             high_wan_threshold = wan_reference_threshold_bps * 0.9
-            medium_wan_threshold = wan_reference_threshold_bps * 0.5
             has_high_wan = (rx_value is not None and rx_value > wan_reference_threshold_bps) or (
                 tx_value is not None and tx_value > wan_reference_threshold_bps
             )
@@ -271,7 +263,6 @@ class DiagnosticsService:
                         **context,
                     }
                 )
-                has_stronger_router_condition = True
             elif has_high_wan:
                 alerts.append(
                     {
@@ -283,7 +274,6 @@ class DiagnosticsService:
                         **context,
                     }
                 )
-                has_stronger_router_condition = True
 
         if not alerts:
             if not router_metrics and smartolt is None:
